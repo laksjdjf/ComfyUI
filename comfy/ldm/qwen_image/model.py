@@ -132,11 +132,12 @@ class Attention(nn.Module):
         encoder_hidden_states_mask: torch.FloatTensor = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         image_rotary_emb: Optional[torch.Tensor] = None,
+        num_embeds: Optional[int] = None,
         transformer_options={},
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         seq_txt = encoder_hidden_states.shape[1]
 
-        img_query = self.to_q(hidden_states).unflatten(-1, (self.heads, -1))
+        img_query = self.to_q(hidden_states[:, :num_embeds]).unflatten(-1, (self.heads, -1))
         img_key = self.to_k(hidden_states).unflatten(-1, (self.heads, -1))
         img_value = self.to_v(hidden_states).unflatten(-1, (self.heads, -1))
 
@@ -153,7 +154,7 @@ class Attention(nn.Module):
         joint_key = torch.cat([txt_key, img_key], dim=1)
         joint_value = torch.cat([txt_value, img_value], dim=1)
 
-        joint_query = apply_rotary_emb(joint_query, image_rotary_emb)
+        joint_query = apply_rotary_emb(joint_query, image_rotary_emb[:, :num_embeds + txt_query.shape[1] if num_embeds is not None else None])
         joint_key = apply_rotary_emb(joint_key, image_rotary_emb)
 
         joint_query = joint_query.flatten(start_dim=2)
@@ -227,6 +228,7 @@ class QwenImageTransformerBlock(nn.Module):
         encoder_hidden_states_mask: torch.Tensor,
         temb: torch.Tensor,
         image_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        num_embeds: Optional[int] = None,
         transformer_options={},
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         img_mod_params = self.img_mod(temb)
@@ -244,10 +246,11 @@ class QwenImageTransformerBlock(nn.Module):
             encoder_hidden_states=txt_modulated,
             encoder_hidden_states_mask=encoder_hidden_states_mask,
             image_rotary_emb=image_rotary_emb,
+            num_embeds=num_embeds,
             transformer_options=transformer_options,
         )
 
-        hidden_states = hidden_states + img_gate1 * img_attn_output
+        hidden_states = hidden_states[:, :num_embeds] + img_gate1 * img_attn_output
         encoder_hidden_states = encoder_hidden_states + txt_gate1 * txt_attn_output
 
         img_normed2 = self.img_norm2(hidden_states)
@@ -450,6 +453,7 @@ class QwenImageTransformer2DModel(nn.Module):
                     temb=temb,
                     image_rotary_emb=image_rotary_emb,
                     transformer_options=transformer_options,
+                    num_embeds=num_embeds if i == len(self.transformer_blocks) - 1 else None,
                 )
 
             if "double_block" in patches:

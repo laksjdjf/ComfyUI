@@ -416,8 +416,11 @@ class QwenImageTransformer2DModel(nn.Module):
                 hidden_states = torch.cat([hidden_states, kontext], dim=1)
                 img_ids = torch.cat([img_ids, kontext_ids], dim=1)
 
-        txt_start = round(max(((x.shape[-1] + (self.patch_size // 2)) // self.patch_size) // 2, ((x.shape[-2] + (self.patch_size // 2)) // self.patch_size) // 2))
-        txt_ids = torch.arange(txt_start, txt_start + context.shape[1], device=x.device).reshape(1, -1, 1).repeat(x.shape[0], 1, 3)
+        txt_start_h = round(((x.shape[-2] + (self.patch_size // 2)) // self.patch_size) / 2)
+        txt_start_w = round(((x.shape[-1] + (self.patch_size // 2)) // self.patch_size) / 2)
+        txt_start_id = max(txt_start_h, txt_start_w)
+        txt_start_list = [txt_start_id, txt_start_h, txt_start_w]
+        txt_ids = torch.cat([torch.arange(txt_start, txt_start + context.shape[1], device=x.device).reshape(1, -1, 1).repeat(x.shape[0], 1, 1) for txt_start in txt_start_list], dim=-1)
         ids = torch.cat((txt_ids, img_ids), dim=1)
         image_rotary_emb = self.pe_embedder(ids).to(x.dtype).contiguous()
         del ids, txt_ids, img_ids
